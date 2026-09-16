@@ -14,11 +14,8 @@
   jsonlite::fromJSON(path, simplifyVector = TRUE)
 }
 
-.msdemo_curl_json <- function(url, token = "") {
+.msdemo_curl_json <- function(url) {
   h <- curl::new_handle(timeout = 120, followlocation = TRUE)
-  if (nzchar(token)) {
-    curl::handle_setheaders(h, Authorization = paste("Bearer", token))
-  }
   res <- curl::curl_fetch_memory(url, handle = h)
   txt <- rawToChar(res$content)
   body <- tryCatch(
@@ -71,11 +68,10 @@
   do.call(rbind, rows)
 }
 
-.msdemo_zenodo_file_table <- function(meta, token = "") {
+.msdemo_zenodo_file_table <- function(meta) {
   rec_id <- meta$id
   published <- .msdemo_curl_json(
-    sprintf("https://zenodo.org/api/records/%s", rec_id),
-    token = token
+    sprintf("https://zenodo.org/api/records/%s", rec_id)
   )
   if (published$status < 400) {
     tab <- .msdemo_files_from_record(published$body)
@@ -141,20 +137,13 @@
   grepl("\\.(wiff|wiff\\.scan|txt)$", name, ignore.case = TRUE)
 }
 
-.msdemo_download_one <- function(url, destfile, token = "", quiet = FALSE) {
+.msdemo_download_one <- function(url, destfile, quiet = FALSE) {
   h <- curl::new_handle(
     timeout = 0,
     connecttimeout = 60,
     followlocation = TRUE,
     noprogress = isTRUE(quiet)
   )
-  if (nzchar(token)) {
-    curl::handle_setheaders(
-      h,
-      Authorization = paste("Bearer", token),
-      `Content-Type` = "application/octet-stream"
-    )
-  }
   curl::curl_download(url, destfile, handle = h, quiet = quiet)
 }
 
@@ -180,7 +169,6 @@ MSdemo_zenodo <- function() {
 #'   `options(MSdemo.raw_dir = ...)`, or `MSDEMO_RAW_DIR`.
 #' @param overwrite Logical. Re-download files that already exist.
 #' @param quiet Logical. Suppress curl progress.
-#' @param token Optional Zenodo token. Default `Sys.getenv("ZENODO_PAT")`.
 #'
 #' @return The destination path (invisibly).
 #' @export
@@ -192,8 +180,7 @@ MSdemo_zenodo <- function() {
 #' }
 MSdemo_download_dataset <- function(dest = NULL,
                                     overwrite = FALSE,
-                                    quiet = FALSE,
-                                    token = Sys.getenv("ZENODO_PAT")) {
+                                    quiet = FALSE) {
   meta <- .msdemo_zenodo_meta()
   dest <- .msdemo_download_dest(dest)
   dir.create(dest, recursive = TRUE, showWarnings = FALSE)
@@ -201,9 +188,8 @@ MSdemo_download_dataset <- function(dest = NULL,
     stop("Cannot write to ", dest, ". Pass dest = \"...\" or set MSDEMO_RAW_DIR.", call. = FALSE)
   }
   dest <- normalizePath(dest, winslash = "/", mustWork = TRUE)
-  token <- if (is.null(token) || is.na(token)) "" else as.character(token)
 
-  files <- .msdemo_zenodo_file_table(meta, token = token)
+  files <- .msdemo_zenodo_file_table(meta)
   files <- files[.msdemo_keep_zenodo_file(files$name), , drop = FALSE]
   files <- files[order(files$name), , drop = FALSE]
   if (!nrow(files)) {
@@ -240,7 +226,7 @@ MSdemo_download_dataset <- function(dest = NULL,
     if (file.exists(tmp)) {
       unlink(tmp)
     }
-    .msdemo_download_one(url, tmp, token = token, quiet = quiet)
+    .msdemo_download_one(url, tmp, quiet = quiet)
     if (!file.exists(tmp) || isTRUE(file.size(tmp) == 0)) {
       stop("Download produced an empty file: ", nm, call. = FALSE)
     }
