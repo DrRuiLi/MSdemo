@@ -1,0 +1,19 @@
+{
+  "default": "lcms_wiff",
+  "datasets": {
+    "lcms_wiff": {
+      "title": "MSdemo: LC-MS demo files for MSdev",
+      "description": "Dual-polarity LC-MS WIFF files (QC, blank, three sample groups; 3 replicates).",
+      "id": 22673685,
+      "doi": "10.5281/zenodo.22673685",
+      "conceptrecid": "22673684",
+      "concept_doi": "10.5281/zenodo.22673684",
+      "url": "https://zenodo.org/records/22673685",
+      "api": "https://zenodo.org/api/records/22673685",
+      "published": true,
+      "license": "CC-BY-4.0",
+      "keep": "\\.(wiff|wiff\\.scan|txt)$",
+      "raw_pattern": "\\.wiff$"
+    }
+  }
+}

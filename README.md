@@ -1,21 +1,22 @@
 # MSdemo
 
-Demo LC-MS data for [MSdev](https://github.com/DrRuiLi/MSdev): anonymized files, positive and negative, three replicates per group (`QC`, `Blank`, `Sample_GroupA`, `Sample_GroupC`, `Sample_GroupD`).
+Demo LC-MS data for [MSdev](https://github.com/DrRuiLi/MSdev). Datasets are registered in `inst/extdata/catalog.json`; each has its own Zenodo record and local folder.
 
-Raw `.wiff` files are **not** in git. After installing the package, download them from Zenodo (~several GB) into the installed package `extdata` folder:
+Raw vendor files are **not** in git. After installing the package:
 
 ```r
 library(MSdemo)
-MSdemo_zenodo()                 # DOI and record URL
-MSdemo_download_dataset()       # writes into the installed package by default
+MSdemo_datasets()                 # catalog of Zenodo records
+MSdemo_zenodo()                   # default dataset metadata
+MSdemo_download_dataset()         # writes to <extdata>/<dataset>
 demo_raw_dir()
 demo_sample_info()
-# make_demo()                   # requires MSdev + MSconvertR
+# make_demo()                     # requires MSdev + MSconvertR
 ```
 
-Zenodo record:
+Current default dataset `lcms_wiff`:
 
 - <https://zenodo.org/records/22673685>
 - DOI: `10.5281/zenodo.22673685`
 
-Override the download folder with `MSdemo_download_dataset(dest = ...)` or `options(MSdemo.raw_dir = ...)`. Processed objects are rebuilt into `D:/MSdemo/project`.
+Add another dataset by inserting an object under `datasets` in `catalog.json` and creating `inst/extdata/<dataset_id>/`. Override the download folder with `MSdemo_download_dataset(dest = ...)`. Processed objects are rebuilt into `D:/MSdemo/project/<dataset>`.

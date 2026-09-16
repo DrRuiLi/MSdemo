@@ -6,14 +6,6 @@
   }
 }
 
-.msdemo_zenodo_meta <- function() {
-  path <- system.file("extdata", "zenodo.json", package = "MSdemo", mustWork = FALSE)
-  if (!nzchar(path) || !file.exists(path)) {
-    stop("zenodo.json is missing from the MSdemo package.", call. = FALSE)
-  }
-  jsonlite::fromJSON(path, simplifyVector = TRUE)
-}
-
 .msdemo_curl_json <- function(url) {
   h <- curl::new_handle(timeout = 120, followlocation = TRUE)
   res <- curl::curl_fetch_memory(url, handle = h)
@@ -83,58 +75,13 @@
     "Could not list files for Zenodo record ", rec_id, " ",
     "(HTTP ", published$status, "). ",
     "Check the DOI and network, then retry. ",
-    "Record: ", meta$url,
+    "Record: ", .msdemo_chr(meta$url, ""),
     call. = FALSE
   )
 }
 
-.msdemo_dir_writable <- function(path) {
-  if (!dir.exists(path)) {
-    return(isTRUE(dir.create(path, recursive = TRUE, showWarnings = FALSE)))
-  }
-  tf <- tempfile("msdemo_", tmpdir = path)
-  tryCatch({
-    con <- file(tf, open = "wb")
-    close(con)
-    unlink(tf)
-    TRUE
-  }, error = function(e) FALSE)
-}
-
-.msdemo_is_installed_pkg <- function() {
-  pkg <- tryCatch(find.package("MSdemo", quiet = TRUE), error = function(e) "")
-  length(pkg) == 1L &&
-    nzchar(pkg) &&
-    file.exists(file.path(pkg, "Meta", "package.rds"))
-}
-
-.msdemo_download_dest <- function(dest = NULL) {
-  if (!is.null(dest) && nzchar(dest)) {
-    return(dest)
-  }
-  opt <- getOption("MSdemo.raw_dir")
-  if (!is.null(opt) && nzchar(opt)) {
-    return(opt)
-  }
-  env <- Sys.getenv("MSDEMO_RAW_DIR", unset = "")
-  if (nzchar(env)) {
-    return(env)
-  }
-  if (.msdemo_is_installed_pkg()) {
-    pkg_ext <- file.path(find.package("MSdemo"), "extdata")
-    if (.msdemo_dir_writable(pkg_ext)) {
-      return(pkg_ext)
-    }
-  }
-  fallback <- .msdemo_default_raw_dir()
-  if (.msdemo_dir_writable(fallback)) {
-    return(fallback)
-  }
-  tools::R_user_dir("MSdemo", which = "data")
-}
-
-.msdemo_keep_zenodo_file <- function(name) {
-  grepl("\\.(wiff|wiff\\.scan|txt)$", name, ignore.case = TRUE)
+.msdemo_keep_zenodo_file <- function(name, pattern) {
+  grepl(pattern, name, ignore.case = TRUE)
 }
 
 .msdemo_download_one <- function(url, destfile, quiet = FALSE) {
@@ -147,26 +94,16 @@
   curl::curl_download(url, destfile, handle = h, quiet = quiet)
 }
 
-#' @title Zenodo record for the MSdemo dataset
-#' @description Metadata stored in `inst/extdata/zenodo.json` (DOI, record URL,
-#'   API endpoint). Use [MSdemo_download_dataset()] to fetch the files.
+#' @title Download an MSdemo dataset from Zenodo
+#' @description Fetch files for one catalog entry (see [MSdemo_datasets()]).
+#'   After a normal install the default destination is
+#'   `<package>/extdata/<dataset>`. Existing files of the same size are skipped.
 #'
-#' @return A named list.
-#' @export
-MSdemo_zenodo <- function() {
-  .msdemo_zenodo_meta()
-}
-
-#' @title Download the MSdemo LC-MS files from Zenodo
-#' @description Fetch the `.wiff` / `.wiff.scan` pairs (several GB) from
-#'   the Zenodo record shipped with the package. After a normal install the
-#'   default destination is the package `extdata` folder. Existing files of the
-#'   same size are skipped.
-#'
-#' @param dest Directory to write into. Default: installed package `extdata`
-#'   when writable, otherwise `D:/MSdemo/extdata` or
-#'   `tools::R_user_dir("MSdemo", "data")`. Override with this argument,
-#'   `options(MSdemo.raw_dir = ...)`, or `MSDEMO_RAW_DIR`.
+#' @param dataset Dataset id from [MSdemo_datasets()]. Default: option
+#'   `MSdemo.dataset`, otherwise the catalog `default`.
+#' @param dest Directory to write this dataset into. If unset, files go to
+#'   `file.path(find.package("MSdemo"), "extdata", dataset)` when that
+#'   folder is writable.
 #' @param overwrite Logical. Re-download files that already exist.
 #' @param quiet Logical. Suppress curl progress.
 #'
@@ -175,31 +112,40 @@ MSdemo_zenodo <- function() {
 #'
 #' @examples
 #' \dontrun{
+#' MSdemo_datasets()
 #' MSdemo_download_dataset()
-#' demo_raw_dir()
+#' MSdemo_download_dataset("lcms_wiff")
+#' demo_raw_dir("lcms_wiff")
 #' }
-MSdemo_download_dataset <- function(dest = NULL,
+MSdemo_download_dataset <- function(dataset = NULL,
+                                    dest = NULL,
                                     overwrite = FALSE,
                                     quiet = FALSE) {
-  meta <- .msdemo_zenodo_meta()
-  dest <- .msdemo_download_dest(dest)
+  meta <- .msdemo_dataset_entry(dataset)
+  dataset <- meta$dataset
+  dest <- .msdemo_download_dest(dest, dataset)
   dir.create(dest, recursive = TRUE, showWarnings = FALSE)
   if (!.msdemo_dir_writable(dest)) {
-    stop("Cannot write to ", dest, ". Pass dest = \"...\" or set MSDEMO_RAW_DIR.", call. = FALSE)
+    stop("Cannot write to ", dest, ". Pass dest = \"...\".", call. = FALSE)
   }
   dest <- normalizePath(dest, winslash = "/", mustWork = TRUE)
 
   files <- .msdemo_zenodo_file_table(meta)
-  files <- files[.msdemo_keep_zenodo_file(files$name), , drop = FALSE]
+  keep <- .msdemo_keep_pattern(meta)
+  files <- files[.msdemo_keep_zenodo_file(files$name, keep), , drop = FALSE]
   files <- files[order(files$name), , drop = FALSE]
   if (!nrow(files)) {
-    stop("Zenodo record ", meta$id, " has no .wiff / .txt files to download.", call. = FALSE)
+    stop(
+      "Zenodo record ", meta$id, " has no files matching ", keep, ".",
+      call. = FALSE
+    )
   }
 
   message(
     "Downloading ", nrow(files), " files (~",
     sprintf("%.1f", sum(files$size, na.rm = TRUE) / 1e9),
-    " GB) from Zenodo ", meta$doi, "\n  -> ", dest
+    " GB) for dataset '", dataset, "' from Zenodo ", meta$doi,
+    "\n  -> ", dest
   )
 
   ok <- 0L
@@ -242,6 +188,6 @@ MSdemo_download_dataset <- function(dest = NULL,
   }
 
   message("Done: downloaded ", ok, ", skipped ", skipped, " in ", dest)
-  options(MSdemo.raw_dir = dest)
+  .msdemo_remember_raw_dir(dataset, dest)
   invisible(dest)
 }

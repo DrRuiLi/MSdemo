@@ -1,62 +1,63 @@
-.msdemo_default_raw_dir <- function() {
-  "D:/MSdemo/extdata"
-}
-
 .msdemo_default_project_dir <- function() {
   "D:/MSdemo/project"
 }
 
-.msdemo_has_wiff <- function(path) {
+.msdemo_has_raw <- function(path, pattern) {
   is.character(path) &&
     length(path) == 1L &&
     !is.na(path) &&
     nzchar(path) &&
     dir.exists(path) &&
-    length(list.files(path, pattern = "\\.wiff$", ignore.case = TRUE)) > 0L
+    length(list.files(path, pattern = pattern, ignore.case = TRUE)) > 0L
+}
+
+.msdemo_raw_candidates <- function(dataset) {
+  named <- .msdemo_named_raw_dir(dataset)
+  pkg_ext <- .msdemo_pkg_extdata()
+  candidates <- c(
+    named,
+    if (!is.na(pkg_ext) && nzchar(pkg_ext)) file.path(pkg_ext, dataset)
+  )
+  unique(candidates[!is.na(candidates) & nzchar(candidates)])
 }
 
 #' @title Directory of demo LC-MS raw files
-#' @description Return the folder that holds the MSdemo `.wiff` / `.wiff.scan`
-#'   pairs. Search order: `getOption("MSdemo.raw_dir")`, environment variable
-#'   `MSDEMO_RAW_DIR`, `D:/MSdemo/extdata`, `tools::R_user_dir("MSdemo", "data")`,
-#'   then `system.file("extdata", package = "MSdemo")`. If nothing is found, run
-#'   [MSdemo_download_dataset()].
+#' @description Return the folder that holds one catalog dataset. Search
+#'   order: a `dest` recorded by [MSdemo_download_dataset()], then
+#'   `file.path(find.package("MSdemo"), "extdata", dataset)`.
+#'
+#' @param dataset Dataset id from [MSdemo_datasets()]. Default: option
+#'   `MSdemo.dataset`, otherwise the catalog `default`.
 #'
 #' @return Character path (forward slashes).
 #' @export
-demo_raw_dir <- function() {
-  user_data <- tryCatch(
-    tools::R_user_dir("MSdemo", which = "data"),
-    error = function(e) NA_character_
-  )
-  candidates <- c(
-    getOption("MSdemo.raw_dir"),
-    Sys.getenv("MSDEMO_RAW_DIR", unset = NA_character_),
-    .msdemo_default_raw_dir(),
-    user_data,
-    system.file("extdata", package = "MSdemo", mustWork = FALSE)
-  )
-  candidates <- unique(candidates[!is.na(candidates) & nzchar(candidates)])
-  for (path in candidates) {
-    if (.msdemo_has_wiff(path)) {
+demo_raw_dir <- function(dataset = NULL) {
+  dataset <- .msdemo_dataset_id(dataset)
+  pattern <- .msdemo_raw_pattern(.msdemo_dataset_entry(dataset))
+  for (path in .msdemo_raw_candidates(dataset)) {
+    if (.msdemo_has_raw(path, pattern)) {
       return(normalizePath(path, winslash = "/", mustWork = TRUE))
     }
   }
   stop(
-    "No MSdemo .wiff files found. Run MSdemo_download_dataset() ",
-    "or set options(MSdemo.raw_dir = ...).",
+    "No files for dataset '", dataset, "' found. Run MSdemo_download_dataset(\"",
+    dataset, "\").",
     call. = FALSE
   )
 }
 
 #' @title Directory for rebuilt demo project objects
 #' @description Folder used by [make_demo()] for `MSdev` project output
-#'   (`.Rdata`, reports). Override with `options(MSdemo.project_dir = ...)` or
-#'   `MSDEMO_PROJECT_DIR`.
+#'   (`.Rdata`, reports). Root override: `options(MSdemo.project_dir = ...)` or
+#'   `MSDEMO_PROJECT_DIR`. Each dataset is written under `<root>/<dataset>`.
+#'
+#' @param dataset Dataset id from [MSdemo_datasets()]. Default: option
+#'   `MSdemo.dataset`, otherwise the catalog `default`.
 #'
 #' @return Character path (forward slashes). Created if missing.
 #' @export
-demo_project_dir <- function() {
+demo_project_dir <- function(dataset = NULL) {
+  dataset <- .msdemo_dataset_id(dataset)
   path <- getOption("MSdemo.project_dir")
   if (is.null(path) || !nzchar(path)) {
     path <- Sys.getenv("MSDEMO_PROJECT_DIR", unset = "")
@@ -64,23 +65,26 @@ demo_project_dir <- function() {
   if (!nzchar(path)) {
     path <- .msdemo_default_project_dir()
   }
+  path <- file.path(path, dataset)
   dir.create(path, recursive = TRUE, showWarnings = FALSE)
   normalizePath(path, winslash = "/", mustWork = TRUE)
 }
 
-#' @title List demo `.wiff` files
+#' @title List demo raw files
 #' @param full.names Logical. Return full paths (default `TRUE`).
-#' @return Character vector of `.wiff` paths or names.
+#' @param dataset Dataset id from [MSdemo_datasets()].
+#' @return Character vector of raw file paths or names.
 #' @export
-list_demo_raw <- function(full.names = TRUE) {
-  raw_dir <- demo_raw_dir()
+list_demo_raw <- function(full.names = TRUE, dataset = NULL) {
+  dataset <- .msdemo_dataset_id(dataset)
+  raw_dir <- demo_raw_dir(dataset)
+  pattern <- .msdemo_raw_pattern(.msdemo_dataset_entry(dataset))
   files <- list.files(
     raw_dir,
-    pattern = "\\.wiff$",
+    pattern = pattern,
     ignore.case = TRUE,
     full.names = full.names
   )
-  files <- files[!grepl("\\.wiff\\.scan$", files, ignore.case = TRUE)]
   sort(files)
 }
 
@@ -88,11 +92,13 @@ list_demo_raw <- function(full.names = TRUE) {
 #' @description Build a compact sample information table from anonymized names
 #'   such as `QC_pos_01`, `Blank_neg_02`, `Sample_GroupA_pos_01`.
 #'
+#' @param dataset Dataset id from [MSdemo_datasets()].
+#'
 #' @return `data.frame`
 #' @export
-demo_sample_info <- function() {
-  files <- list_demo_raw(full.names = TRUE)
-  base <- sub("\\.wiff$", "", basename(files), ignore.case = TRUE)
+demo_sample_info <- function(dataset = NULL) {
+  files <- list_demo_raw(dataset = dataset, full.names = TRUE)
+  base <- tools::file_path_sans_ext(basename(files))
   polarity <- ifelse(
     grepl("_pos_", base, ignore.case = TRUE),
     "1",
@@ -140,6 +146,7 @@ demo_sample_info <- function() {
 #' @param demo Character. `"MSdev"` (default) loads the latest `MSdev_*.Rdata`
 #'   via `MSdev::MSdev_load()`. Other values look for RDS/RDA files matching
 #'   `XcmsExperiment`, `XCMSnExp`, `SummarizedExperiment`, or `Spectra`.
+#' @param dataset Dataset id from [MSdemo_datasets()].
 #'
 #' @return The loaded object.
 #' @export
@@ -147,9 +154,10 @@ load_demo <- function(demo = c("MSdev",
                                "XcmsExperiment", "xcms",
                                "XCMSnExp",
                                "SummarizedExperiment", "data.se",
-                               "Spectra", "sp")) {
+                               "Spectra", "sp"),
+                      dataset = NULL) {
   demo <- match.arg(demo)
-  project_dir <- tryCatch(demo_project_dir(), error = function(e) NA_character_)
+  project_dir <- tryCatch(demo_project_dir(dataset), error = function(e) NA_character_)
   file_path <- switch(
     demo,
     "MSdev" = .msdemo_latest_file(project_dir, "^MSdev_.*\\.Rdata$"),
@@ -183,7 +191,8 @@ load_demo <- function(demo = c("MSdev",
 #' @description Run the MSdev pipeline on [demo_raw_dir()] and save into
 #'   [demo_project_dir()]. Requires **MSdev** (and **MSconvertR** for `.wiff`).
 #'
-#' @param rawDataDir Raw `.wiff` directory. Default [demo_raw_dir()].
+#' @param dataset Dataset id from [MSdemo_datasets()].
+#' @param rawDataDir Raw file directory. Default [demo_raw_dir()].
 #' @param projectDir Output directory. Default [demo_project_dir()].
 #' @param cpdb_path Optional CompoundDb path for annotation. If `NULL` and a
 #'   local default file exists, that path is used; otherwise annotation is
@@ -192,12 +201,20 @@ load_demo <- function(demo = c("MSdev",
 #'
 #' @return The processed `MSdev` object (invisibly).
 #' @export
-make_demo <- function(rawDataDir = demo_raw_dir(),
-                      projectDir = demo_project_dir(),
+make_demo <- function(dataset = NULL,
+                      rawDataDir = NULL,
+                      projectDir = NULL,
                       cpdb_path = NULL,
                       convert = TRUE,
                       xcms = TRUE,
                       annotate = TRUE) {
+  dataset <- .msdemo_dataset_id(dataset)
+  if (is.null(rawDataDir)) {
+    rawDataDir <- demo_raw_dir(dataset)
+  }
+  if (is.null(projectDir)) {
+    projectDir <- demo_project_dir(dataset)
+  }
   if (!requireNamespace("MSdev", quietly = TRUE)) {
     stop("Package 'MSdev' is required to rebuild the demo.", call. = FALSE)
   }

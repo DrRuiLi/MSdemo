@@ -1,19 +1,17 @@
-MSdemo: anonymized LC-MS files for the MSdev R package.
+MSdemo dataset catalog.
 
-30 paired .wiff / .wiff.scan files (~3.6 GB):
-  QC, Blank, Sample_GroupA, Sample_GroupC, Sample_GroupD
-  positive and negative polarity, 3 replicates each
+Registered datasets live in catalog.json. Add another dataset by:
+  1. inserting an object under "datasets" with a unique id
+  2. creating inst/extdata/<dataset_id>/ (FILELIST.txt, README.txt)
+  3. pointing id / doi / url at that dataset's Zenodo record
 
-Example names:
-  QC_pos_01.wiff
-  Blank_neg_02.wiff
-  Sample_GroupA_pos_01.wiff
+keep         regex of Zenodo files to download
+raw_pattern  regex used to detect that the dataset is present locally
 
-After installing MSdemo:
+Default dataset: lcms_wiff
+  DOI: 10.5281/zenodo.22673685
 
   library(MSdemo)
+  MSdemo_datasets()
   MSdemo_download_dataset()
   demo_raw_dir()
-
-DOI: 10.5281/zenodo.22673685
-License: CC-BY-4.0
