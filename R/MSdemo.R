@@ -1,7 +1,3 @@
-.msdemo_default_project_dir <- function() {
-  "D:/MSdemo/project"
-}
-
 .msdemo_has_raw <- function(path, pattern) {
   is.character(path) &&
     length(path) == 1L &&
@@ -47,27 +43,16 @@ demo_raw_dir <- function(dataset = NULL) {
 }
 
 #' @title Directory for rebuilt demo project objects
-#' @description Folder used by [make_demo()] for `MSdev` project output
-#'   (`.Rdata`, reports). Root override: `options(MSdemo.project_dir = ...)` or
-#'   `MSDEMO_PROJECT_DIR`. Each dataset is written under `<root>/<dataset>`.
+#' @description Same folder as [demo_raw_dir()]. [make_demo()] writes the
+#'   `MSdev_*.Rdata` object next to the downloaded raw files.
 #'
 #' @param dataset Dataset id from [MSdemo_datasets()]. Default: option
 #'   `MSdemo.dataset`, otherwise the catalog `default`.
 #'
-#' @return Character path (forward slashes). Created if missing.
+#' @return Character path (forward slashes).
 #' @export
 demo_project_dir <- function(dataset = NULL) {
-  dataset <- .msdemo_dataset_id(dataset)
-  path <- getOption("MSdemo.project_dir")
-  if (is.null(path) || !nzchar(path)) {
-    path <- Sys.getenv("MSDEMO_PROJECT_DIR", unset = "")
-  }
-  if (!nzchar(path)) {
-    path <- .msdemo_default_project_dir()
-  }
-  path <- file.path(path, dataset)
-  dir.create(path, recursive = TRUE, showWarnings = FALSE)
-  normalizePath(path, winslash = "/", mustWork = TRUE)
+  demo_raw_dir(dataset)
 }
 
 #' @title List demo raw files
@@ -123,6 +108,156 @@ demo_sample_info <- function(dataset = NULL) {
   )
 }
 
+.msdemo_demo_kinds <- function() {
+  c("MSdev",
+    "XcmsExperiment", "xcms",
+    "XCMSnExp",
+    "SummarizedExperiment", "data.se",
+    "Spectra", "sp")
+}
+
+.msdemo_demo_rds_name <- function(demo) {
+  switch(
+    demo,
+    "MSdev" = NA_character_,
+    "XcmsExperiment" = "XcmsExperiment.rds",
+    "xcms" = "XcmsExperiment.rds",
+    "XCMSnExp" = "XCMSnExp.rds",
+    "SummarizedExperiment" = "SummarizedExperiment.rds",
+    "data.se" = "SummarizedExperiment.rds",
+    "Spectra" = "Spectra.rds",
+    "sp" = "Spectra.rds",
+    NA_character_
+  )
+}
+
+.msdemo_demo_glob <- function(demo) {
+  switch(
+    demo,
+    "MSdev" = "^MSdev_.*\\.Rdata$",
+    "XcmsExperiment" = "XcmsExperiment.*\\.(rda|rds)$",
+    "xcms" = "XcmsExperiment.*\\.(rda|rds)$",
+    "XCMSnExp" = "XCMSnExp.*\\.(rda|rds)$",
+    "SummarizedExperiment" = "SummarizedExperiment.*\\.(rda|rds)$",
+    "data.se" = "SummarizedExperiment.*\\.(rda|rds)$",
+    "Spectra" = "Spectra.*\\.(rda|rds)$",
+    "sp" = "Spectra.*\\.(rda|rds)$",
+    NA_character_
+  )
+}
+
+.msdemo_find_demo_file <- function(dir, demo) {
+  rds <- .msdemo_demo_rds_name(demo)
+  if (!is.na(rds)) {
+    path <- file.path(dir, rds)
+    if (file.exists(path)) {
+      return(path)
+    }
+  }
+  .msdemo_latest_file(dir, .msdemo_demo_glob(demo))
+}
+
+.msdemo_nonempty <- function(x) {
+  !is.null(x) && !identical(x, NA) && !(isS4(x) && methods::is(x, "Spectra") && length(x) == 0L)
+}
+
+.msdemo_xcms_from_msdev <- function(object) {
+  if (!is.list(object@xcmsData) || !length(object@xcmsData)) {
+    return(NULL)
+  }
+  nms <- names(object@xcmsData)
+  nms <- nms[grepl("MS1$", nms)]
+  objs <- lapply(nms, function(nm) object@xcmsData[[nm]])
+  names(objs) <- sub("MS1$", "", nms)
+  objs <- Filter(.msdemo_nonempty, objs)
+  if (!length(objs)) {
+    return(NULL)
+  }
+  if (length(objs) == 1L) {
+    objs[[1L]]
+  } else {
+    objs
+  }
+}
+
+.msdemo_as_xcmsnexp <- function(x) {
+  if (inherits(x, "XCMSnExp") && !inherits(x, "XcmsExperiment")) {
+    return(x)
+  }
+  out <- tryCatch(methods::as(x, "XCMSnExp"), error = function(e) NULL)
+  if (inherits(out, "XCMSnExp")) {
+    return(out)
+  }
+  tryCatch({
+    peaks <- as.matrix(xcms::chromPeaks(x))
+    fdef <- S4Vectors::DataFrame(as.data.frame(xcms::featureDefinitions(x)))
+    mfd <- methods::new(
+      "MsFeatureData",
+      chromPeaks = peaks,
+      featureDefinitions = fdef
+    )
+    xe <- methods::new("XCMSnExp")
+    xe@msFeatureData <- mfd
+    xe
+  }, error = function(e) NULL)
+}
+
+.msdemo_xcmsnexp_from_xcms <- function(xcms_obj) {
+  if (is.null(xcms_obj)) {
+    return(NULL)
+  }
+  if (is.list(xcms_obj) && !isS4(xcms_obj)) {
+    out <- lapply(xcms_obj, .msdemo_as_xcmsnexp)
+    names(out) <- names(xcms_obj)
+    out <- Filter(Negate(is.null), out)
+    if (!length(out)) {
+      return(NULL)
+    }
+    if (length(out) == 1L) {
+      return(out[[1L]])
+    }
+    return(out)
+  }
+  .msdemo_as_xcmsnexp(xcms_obj)
+}
+
+.msdemo_save_rds <- function(object, path) {
+  saveRDS(object, file = path)
+  message("Saved: ", normalizePath(path, winslash = "/", mustWork = FALSE))
+}
+
+.msdemo_write_demo_objects <- function(object, dest) {
+  xcms_obj <- .msdemo_xcms_from_msdev(object)
+  if (!is.null(xcms_obj)) {
+    .msdemo_save_rds(xcms_obj, file.path(dest, "XcmsExperiment.rds"))
+    xcmsnexp <- .msdemo_xcmsnexp_from_xcms(xcms_obj)
+    if (!is.null(xcmsnexp)) {
+      .msdemo_save_rds(xcmsnexp, file.path(dest, "XCMSnExp.rds"))
+    } else {
+      message("Skipping XCMSnExp demo: could not coerce xcms result.")
+    }
+  } else {
+    message("Skipping XcmsExperiment / XCMSnExp demos: no xcmsData.")
+  }
+
+  se <- object@advancedAna$feature.se
+  if (.msdemo_nonempty(se) && inherits(se, "SummarizedExperiment")) {
+    .msdemo_save_rds(se, file.path(dest, "SummarizedExperiment.rds"))
+  } else {
+    message("Skipping SummarizedExperiment demo: feature.se is empty.")
+  }
+
+  sp <- tryCatch(
+    MSdev::get_MSdev_Spectra(object),
+    error = function(e) NULL
+  )
+  if (.msdemo_nonempty(sp) && methods::is(sp, "Spectra")) {
+    .msdemo_save_rds(sp, file.path(dest, "Spectra.rds"))
+  } else {
+    message("Skipping Spectra demo: no stored MS1/MS2 spectra.")
+  }
+}
+
 .msdemo_latest_file <- function(dir, pattern) {
   files <- list.files(dir, pattern = pattern, full.names = TRUE)
   if (!length(files)) {
@@ -140,16 +275,28 @@ demo_sample_info <- function(dataset = NULL) {
 }
 
 #' @title Load a processed demo object
-#' @description Load artefacts written by [make_demo()] under [demo_project_dir()],
-#'   or a named object still sitting in an older demo folder.
+#' @description Load artefacts written by [make_demo()] next to the downloaded
+#'   raw files ([demo_raw_dir()]). Same keys as `MSdev::load_demo()`:
+#'   `"MSdev"`, `"XcmsExperiment"` / `"xcms"`, `"XCMSnExp"`,
+#'   `"SummarizedExperiment"` / `"data.se"`, `"Spectra"` / `"sp"`.
 #'
-#' @param demo Character. `"MSdev"` (default) loads the latest `MSdev_*.Rdata`
-#'   via `MSdev::MSdev_load()`. Other values look for RDS/RDA files matching
-#'   `XcmsExperiment`, `XCMSnExp`, `SummarizedExperiment`, or `Spectra`.
+#' @param demo Character. Object kind to load. Default `"MSdev"`.
 #' @param dataset Dataset id from [MSdemo_datasets()].
 #'
-#' @return The loaded object.
+#' @return The loaded object (`MSdev`, `XcmsExperiment` or a polarity-named
+#'   list of them, `XCMSnExp`, `SummarizedExperiment`, or `Spectra`).
 #' @export
+#'
+#' @examples
+#' \dontrun{
+#' make_demo()
+#' load_demo("MSdev")
+#' load_demo("xcms")
+#' load_demo("XcmsExperiment")
+#' load_demo("XCMSnExp")
+#' load_demo("data.se")
+#' load_demo("sp")
+#' }
 load_demo <- function(demo = c("MSdev",
                                "XcmsExperiment", "xcms",
                                "XCMSnExp",
@@ -157,23 +304,11 @@ load_demo <- function(demo = c("MSdev",
                                "Spectra", "sp"),
                       dataset = NULL) {
   demo <- match.arg(demo)
-  project_dir <- tryCatch(demo_project_dir(dataset), error = function(e) NA_character_)
-  file_path <- switch(
-    demo,
-    "MSdev" = .msdemo_latest_file(project_dir, "^MSdev_.*\\.Rdata$"),
-    "XcmsExperiment" = .msdemo_latest_file(project_dir, "XcmsExperiment.*\\.(rda|rds)$"),
-    "xcms" = .msdemo_latest_file(project_dir, "XcmsExperiment.*\\.(rda|rds)$"),
-    "XCMSnExp" = .msdemo_latest_file(project_dir, "XCMSnExp.*\\.(rda|rds)$"),
-    "SummarizedExperiment" = .msdemo_latest_file(
-      project_dir, "SummarizedExperiment.*\\.(rda|rds)$"
-    ),
-    "data.se" = .msdemo_latest_file(project_dir, "SummarizedExperiment.*\\.(rda|rds)$"),
-    "Spectra" = .msdemo_latest_file(project_dir, "Spectra.*\\.(rda|rds)$"),
-    "sp" = .msdemo_latest_file(project_dir, "Spectra.*\\.(rda|rds)$")
-  )
+  raw_dir <- demo_raw_dir(dataset)
+  file_path <- .msdemo_find_demo_file(raw_dir, demo)
   if (is.na(file_path) || !file.exists(file_path)) {
     stop(
-      "No processed '", demo, "' demo found under ", project_dir,
+      "No processed '", demo, "' demo found under ", raw_dir,
       ". Run MSdemo::make_demo() first.",
       call. = FALSE
     )
@@ -187,13 +322,16 @@ load_demo <- function(demo = c("MSdev",
   readRDS(file_path)
 }
 
-#' @title Rebuild the MSdev demo project from bundled raw files
-#' @description Run the MSdev pipeline on [demo_raw_dir()] and save into
-#'   [demo_project_dir()]. Requires **MSdev** (and **MSconvertR** for `.wiff`).
+#' @title Run the MSdev pipeline and write demo objects
+#' @description Create an `MSdev` object from [demo_raw_dir()], run convert /
+#'   xcms / annotation, then save these artefacts in that same folder:
+#'   `MSdev_*.Rdata`, `XcmsExperiment.rds`, `XCMSnExp.rds`,
+#'   `SummarizedExperiment.rds`, and `Spectra.rds`. Requires **MSdev**
+#'   (and **MSconvertR** for `.wiff`). [load_demo()] reads them back.
 #'
 #' @param dataset Dataset id from [MSdemo_datasets()].
-#' @param rawDataDir Raw file directory. Default [demo_raw_dir()].
-#' @param projectDir Output directory. Default [demo_project_dir()].
+#' @param rawDataDir Raw file directory. Default [demo_raw_dir()]. Also used
+#'   as the project directory (object, `msData/`, reports).
 #' @param cpdb_path Optional CompoundDb path for annotation. If `NULL` and a
 #'   local default file exists, that path is used; otherwise annotation is
 #'   skipped.
@@ -203,7 +341,6 @@ load_demo <- function(demo = c("MSdev",
 #' @export
 make_demo <- function(dataset = NULL,
                       rawDataDir = NULL,
-                      projectDir = NULL,
                       cpdb_path = NULL,
                       convert = TRUE,
                       xcms = TRUE,
@@ -211,9 +348,6 @@ make_demo <- function(dataset = NULL,
   dataset <- .msdemo_dataset_id(dataset)
   if (is.null(rawDataDir)) {
     rawDataDir <- demo_raw_dir(dataset)
-  }
-  if (is.null(projectDir)) {
-    projectDir <- demo_project_dir(dataset)
   }
   if (!requireNamespace("MSdev", quietly = TRUE)) {
     stop("Package 'MSdev' is required to rebuild the demo.", call. = FALSE)
@@ -225,16 +359,18 @@ make_demo <- function(dataset = NULL,
     warning("No CompoundDb found; skipping annotation.", call. = FALSE)
     annotate <- FALSE
   }
-  object <- MSdev::MSdev(rawDataDir = rawDataDir, projectDir = projectDir)
+  object <- MSdev::MSdev(rawDataDir = rawDataDir, projectDir = rawDataDir)
   if (isTRUE(convert)) {
     object <- MSdev::MSdev_msConvert(object)
   }
   if (isTRUE(xcms)) {
     object <- MSdev::MSdev_xcmsProcessing(object)
+    object <- MSdev::MSdev_get_Se(object)
   }
   if (isTRUE(annotate)) {
     object <- MSdev::MSdev_annotation(object, cpdb_path = cpdb_path)
   }
   MSdev::MSdev_save(object)
+  .msdemo_write_demo_objects(object, rawDataDir)
   invisible(object)
 }

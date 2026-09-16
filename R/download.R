@@ -84,14 +84,31 @@
   grepl(pattern, name, ignore.case = TRUE)
 }
 
-.msdemo_download_one <- function(url, destfile, quiet = FALSE) {
-  h <- curl::new_handle(
-    timeout = 0,
-    connecttimeout = 60,
-    followlocation = TRUE,
-    noprogress = isTRUE(quiet)
-  )
-  curl::curl_download(url, destfile, handle = h, quiet = quiet)
+.msdemo_download_one <- function(url, destfile, quiet = FALSE, tries = 5L) {
+  last <- NULL
+  for (i in seq_len(tries)) {
+    if (file.exists(destfile)) {
+      unlink(destfile)
+    }
+    last <- try({
+      h <- curl::new_handle(
+        timeout = 0,
+        connecttimeout = 60,
+        followlocation = TRUE,
+        noprogress = isTRUE(quiet),
+        low_speed_limit = 1000,
+        low_speed_time = 60
+      )
+      curl::curl_download(url, destfile, handle = h, quiet = quiet)
+      TRUE
+    }, silent = TRUE)
+    if (!inherits(last, "try-error")) {
+      return(invisible(destfile))
+    }
+    message("  retry ", i, "/", tries, ": ", paste(as.character(last), collapse = " "))
+    Sys.sleep(min(30, 5 * i))
+  }
+  stop(paste(as.character(last), collapse = " "), call. = FALSE)
 }
 
 #' @title Download an MSdemo dataset from Zenodo

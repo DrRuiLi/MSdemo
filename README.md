@@ -11,7 +11,12 @@ MSdemo_zenodo()                   # default dataset metadata
 MSdemo_download_dataset()         # writes to <extdata>/<dataset>
 demo_raw_dir()
 demo_sample_info()
-# make_demo()                     # requires MSdev + MSconvertR
+make_demo()                       # MSdev pipeline + companion demo objects
+load_demo("MSdev")
+load_demo("xcms")                 # XcmsExperiment (or polarity-named list)
+load_demo("XCMSnExp")
+load_demo("data.se")              # SummarizedExperiment
+load_demo("sp")                   # Spectra
 ```
 
 Current default dataset `lcms_wiff`:
@@ -19,4 +24,4 @@ Current default dataset `lcms_wiff`:
 - <https://zenodo.org/records/22673685>
 - DOI: `10.5281/zenodo.22673685`
 
-Add another dataset by inserting an object under `datasets` in `catalog.json` and creating `inst/extdata/<dataset_id>/`. Override the download folder with `MSdemo_download_dataset(dest = ...)`. Processed objects are rebuilt into `D:/MSdemo/project/<dataset>`.
+Add another dataset by inserting an object under `datasets` in `catalog.json` and creating `inst/extdata/<dataset_id>/`. Override the download folder with `MSdemo_download_dataset(dest = ...)`. `make_demo()` writes `MSdev`, `XcmsExperiment`, `XCMSnExp`, `SummarizedExperiment`, and `Spectra` objects into that same folder.
