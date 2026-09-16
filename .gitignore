@@ -1,0 +1,15 @@
+.Rproj.user
+.Rhistory
+.RData
+.Rdata
+.httr-oauth
+.DS_Store
+inst/doc
+docs
+*.wiff
+*.wiff.scan
+msData/
+.Rproj.user/
+.cursor
+.vscode
+man

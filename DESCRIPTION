@@ -1,0 +1,25 @@
+Package: MSdemo
+Title: Demo LC-MS data for the MSdev package
+Version: 0.1.0
+Authors@R: 
+    person("Rui", "Li", , "rli@sinh.ac.cn", role = c("aut", "cre"),
+           comment = c(ORCID = "0000-0002-3199-287X"))
+Description: Experiment data package for MSdev. Points at an anonymized
+    dual-polarity LC-MS demo on Zenodo (QC, blank, and three sample
+    groups; 3 replicates each). Use MSdemo_download_dataset() after install
+    to fetch the raw files, then locate them and rebuild processed MSdev objects.
+License: GPL (>= 3)
+Depends:
+    R (>= 4.3.0)
+Imports:
+    curl,
+    jsonlite
+Suggests:
+    MSdev,
+    MSconvertR
+biocViews: ExperimentData, MassSpectrometryData
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+URL: https://github.com/DrRuiLi/MSdemo
+Config/testthat/edition: 3
+Config/roxygen2/version: 8.0.0
