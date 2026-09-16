@@ -13,10 +13,10 @@ demo_raw_dir()
 demo_sample_info()
 make_demo()                       # MSdev pipeline + companion demo objects
 load_demo("MSdev")
-load_demo("xcms")                 # XcmsExperiment (or polarity-named list)
+load_demo("xcms")                 # positive XcmsExperiment
 load_demo("XCMSnExp")
 load_demo("data.se")              # SummarizedExperiment
-load_demo("sp")                   # Spectra
+load_demo("sp")                   # ~1000 Spectra from the full set
 ```
 
 Current default dataset `lcms_wiff`:

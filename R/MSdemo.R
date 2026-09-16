@@ -165,19 +165,14 @@ demo_sample_info <- function(dataset = NULL) {
   if (!is.list(object@xcmsData) || !length(object@xcmsData)) {
     return(NULL)
   }
-  nms <- names(object@xcmsData)
-  nms <- nms[grepl("MS1$", nms)]
-  objs <- lapply(nms, function(nm) object@xcmsData[[nm]])
-  names(objs) <- sub("MS1$", "", nms)
-  objs <- Filter(.msdemo_nonempty, objs)
-  if (!length(objs)) {
+  pos <- object@xcmsData$PositiveMS1
+  if (is.null(pos) || identical(pos, NA)) {
+    pos <- object@xcmsData$Positive
+  }
+  if (!.msdemo_nonempty(pos)) {
     return(NULL)
   }
-  if (length(objs) == 1L) {
-    objs[[1L]]
-  } else {
-    objs
-  }
+  pos
 }
 
 .msdemo_as_xcmsnexp <- function(x) {
@@ -203,20 +198,8 @@ demo_sample_info <- function(dataset = NULL) {
 }
 
 .msdemo_xcmsnexp_from_xcms <- function(xcms_obj) {
-  if (is.null(xcms_obj)) {
+  if (is.null(xcms_obj) || (is.list(xcms_obj) && !isS4(xcms_obj))) {
     return(NULL)
-  }
-  if (is.list(xcms_obj) && !isS4(xcms_obj)) {
-    out <- lapply(xcms_obj, .msdemo_as_xcmsnexp)
-    names(out) <- names(xcms_obj)
-    out <- Filter(Negate(is.null), out)
-    if (!length(out)) {
-      return(NULL)
-    }
-    if (length(out) == 1L) {
-      return(out[[1L]])
-    }
-    return(out)
   }
   .msdemo_as_xcmsnexp(xcms_obj)
 }
@@ -224,6 +207,62 @@ demo_sample_info <- function(dataset = NULL) {
 .msdemo_save_rds <- function(object, path) {
   saveRDS(object, file = path)
   message("Saved: ", normalizePath(path, winslash = "/", mustWork = FALSE))
+}
+
+.msdemo_even_idx <- function(n_sp, n_keep) {
+  n_keep <- min(as.integer(n_keep), as.integer(n_sp))
+  if (n_keep <= 0L) {
+    return(integer(0))
+  }
+  if (n_keep >= n_sp) {
+    return(seq_len(n_sp))
+  }
+  unique(as.integer(round(seq(1, n_sp, length.out = n_keep))))
+}
+
+.msdemo_subset_spectra <- function(sp, n = 1000L) {
+  n_sp <- length(sp)
+  if (!n_sp) {
+    return(sp)
+  }
+  n_keep <- min(as.integer(n), n_sp)
+  if (n_keep < n_sp) {
+    ms <- tryCatch(as.integer(Spectra::msLevel(sp)), error = function(e) NULL)
+    if (!is.null(ms) && length(unique(ms)) > 1L) {
+      idx <- integer(0)
+      groups <- split(seq_len(n_sp), ms)
+      n_left <- n_keep
+      n_g <- length(groups)
+      for (i in seq_len(n_g)) {
+        gi <- groups[[i]]
+        take <- if (i == n_g) {
+          n_left
+        } else {
+          max(1L, as.integer(round(n_keep * length(gi) / n_sp)))
+        }
+        take <- min(take, length(gi), n_left)
+        idx <- c(idx, gi[.msdemo_even_idx(length(gi), take)])
+        n_left <- n_left - take
+      }
+      idx <- unique(idx)
+      if (length(idx) < n_keep) {
+        extra <- setdiff(seq_len(n_sp), idx)
+        need <- min(n_keep - length(idx), length(extra))
+        if (need > 0L) {
+          idx <- c(idx, extra[.msdemo_even_idx(length(extra), need)])
+        }
+      }
+      sp <- sp[sort(unique(idx))]
+    } else {
+      sp <- sp[.msdemo_even_idx(n_sp, n_keep)]
+    }
+  }
+  sp <- tryCatch(
+    Spectra::setBackend(sp, Spectra::MsBackendMemory()),
+    error = function(e) sp
+  )
+  message("Spectra demo: kept ", length(sp), " / ", n_sp, " spectra")
+  sp
 }
 
 .msdemo_write_demo_objects <- function(object, dest) {
@@ -252,6 +291,7 @@ demo_sample_info <- function(dataset = NULL) {
     error = function(e) NULL
   )
   if (.msdemo_nonempty(sp) && methods::is(sp, "Spectra")) {
+    sp <- .msdemo_subset_spectra(sp, n = 1000L)
     .msdemo_save_rds(sp, file.path(dest, "Spectra.rds"))
   } else {
     message("Skipping Spectra demo: no stored MS1/MS2 spectra.")
@@ -283,8 +323,8 @@ demo_sample_info <- function(dataset = NULL) {
 #' @param demo Character. Object kind to load. Default `"MSdev"`.
 #' @param dataset Dataset id from [MSdemo_datasets()].
 #'
-#' @return The loaded object (`MSdev`, `XcmsExperiment` or a polarity-named
-#'   list of them, `XCMSnExp`, `SummarizedExperiment`, or `Spectra`).
+#' @return The loaded object (`MSdev`, positive `XcmsExperiment`, `XCMSnExp`,
+#'   `SummarizedExperiment`, or `Spectra`).
 #' @export
 #'
 #' @examples
@@ -325,9 +365,10 @@ load_demo <- function(demo = c("MSdev",
 #' @title Run the MSdev pipeline and write demo objects
 #' @description Create an `MSdev` object from [demo_raw_dir()], run convert /
 #'   xcms / annotation, then save these artefacts in that same folder:
-#'   `MSdev_*.Rdata`, `XcmsExperiment.rds`, `XCMSnExp.rds`,
-#'   `SummarizedExperiment.rds`, and `Spectra.rds`. Requires **MSdev**
-#'   (and **MSconvertR** for `.wiff`). [load_demo()] reads them back.
+#'   `MSdev_*.Rdata`, positive `XcmsExperiment.rds`, `XCMSnExp.rds`,
+#'   `SummarizedExperiment.rds`, and `Spectra.rds` (~1000 spectra from the
+#'   full MS1+MS2 object). Requires **MSdev** (and **MSconvertR** for `.wiff`).
+#'   [load_demo()] reads them back.
 #'
 #' @param dataset Dataset id from [MSdemo_datasets()].
 #' @param rawDataDir Raw file directory. Default [demo_raw_dir()]. Also used
@@ -349,6 +390,7 @@ make_demo <- function(dataset = NULL,
   if (is.null(rawDataDir)) {
     rawDataDir <- demo_raw_dir(dataset)
   }
+  .msdemo_remember_raw_dir(dataset, rawDataDir)
   if (!requireNamespace("MSdev", quietly = TRUE)) {
     stop("Package 'MSdev' is required to rebuild the demo.", call. = FALSE)
   }
@@ -361,6 +403,14 @@ make_demo <- function(dataset = NULL,
   }
   object <- MSdev::MSdev(rawDataDir = rawDataDir, projectDir = rawDataDir)
   if (isTRUE(convert)) {
+    if (!requireNamespace("MSconvertR", quietly = TRUE)) {
+      stop("Package 'MSconvertR' is required to convert vendor files.", call. = FALSE)
+    }
+    # MSconvertR uses %>% via Depends: tidyverse; :: does not attach it.
+    if (!requireNamespace("magrittr", quietly = TRUE) ||
+        !suppressPackageStartupMessages(require("magrittr", quietly = TRUE, character.only = TRUE))) {
+      stop("Package 'magrittr' is required to convert vendor files.", call. = FALSE)
+    }
     object <- MSdev::MSdev_msConvert(object)
   }
   if (isTRUE(xcms)) {
